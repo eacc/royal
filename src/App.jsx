@@ -34,13 +34,20 @@ import {
     onSnapshot,
     serverTimestamp,
     query,
-    getDocs
+    getDocs,
+    getDoc
 } from 'firebase/firestore';
 
 // --- CONFIGURACIÓN DE FIREBASE (¡IMPORTANTE!) ---
 // Reemplaza esto con tu propia configuración de Firebase Console
 const firebaseConfig = {
-
+    apiKey: "AIzaSyBrTIqPjwLVVZNjSmsQ770kj-MDyvm7o-E",
+    authDomain: "royalcar-49e2e.firebaseapp.com",
+    projectId: "royalcar-49e2e",
+    storageBucket: "royalcar-49e2e.firebasestorage.app",
+    messagingSenderId: "931717650876",
+    appId: "1:931717650876:web:30afca96d09d94f960b3b9",
+    measurementId: "G-5F17KGGRJP"
 };
 
 // NOTA: Si estás probando sin configurar Firebase aún, la app dará error.
@@ -147,15 +154,6 @@ const TaxiCard = ({ taxi, onMaintenance, onDelete, onViewHistory }) => {
             </div>
 
             <div className="space-y-4 mb-6">
-                <div>
-                    <div className="flex justify-between text-xs mb-1">
-                        <span className="text-slate-600 flex items-center gap-1"><Droplet size={12} /> Uso Aceite ({kmDiff.toLocaleString()} / {KM_LIMIT} km)</span>
-                        <span className={`font-bold ${kmProgress >= 100 ? 'text-red-600' : 'text-slate-600'}`}>{Math.round(kmProgress)}%</span>
-                    </div>
-                    <div className="w-full bg-slate-100 rounded-full h-2.5 overflow-hidden">
-                        <div className={`h-2.5 rounded-full ${kmProgress >= 100 ? 'bg-red-500' : kmProgress > 80 ? 'bg-yellow-400' : 'bg-blue-500'}`} style={{ width: `${kmProgress}%` }}></div>
-                    </div>
-                </div>
                 <div>
                     <div className="flex justify-between text-xs mb-1">
                         <span className="text-slate-600 flex items-center gap-1"><Calendar size={12} /> Tiempo ({daysDiff} / {DAYS_LIMIT} días)</span>
@@ -311,6 +309,7 @@ export default function App() {
     const [historyLogs, setHistoryLogs] = useState([]);
     const [historyLoading, setHistoryLoading] = useState(false);
     const [searchTerm, setSearchTerm] = useState('');
+    const [filterStatus, setFilterStatus] = useState('all'); // 'all', 'maintenance', 'afocat', 'review'
 
     const [newPlate, setNewPlate] = useState('');
     const [newModel, setNewModel] = useState('');
@@ -319,6 +318,7 @@ export default function App() {
     const [newReview, setNewReview] = useState('');
 
     const [maintKm, setMaintKm] = useState('');
+    const [maintDate, setMaintDate] = useState('');
     const [maintOil, setMaintOil] = useState('');
     const [maintFilters, setMaintFilters] = useState({
         oilFilter: true,
@@ -330,7 +330,7 @@ export default function App() {
     useEffect(() => {
         // Simulación de Auth si no hay Firebase configurado
         if (!auth) {
-            console.warn("Firebase no configurado. Usando modo LocalStorage.");
+
             setLoading(false);
             setUser({ uid: 'local-user' });
 
@@ -351,7 +351,7 @@ export default function App() {
         initAuth();
 
         const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
-            console.log("Auth state changed:", currentUser);
+
             setUser(currentUser);
             if (!currentUser) setLoading(false);
         });
@@ -359,21 +359,19 @@ export default function App() {
         // Safety timeout
         setTimeout(() => {
             setLoading(false);
-            console.warn("Safety timeout: Forcing loading to false");
+
         }, 5000);
 
         return () => unsubscribe();
     }, []);
 
     useEffect(() => {
-        console.log("Firestore effect running. User:", user?.uid, "DB:", !!db);
         if (!user || !db) return;
 
         const q = query(collection(db, 'users', user.uid, 'taxis'));
-        console.log("Setting up snapshot listener...");
 
         const unsubscribe = onSnapshot(q, (snapshot) => {
-            console.log("Snapshot received. Docs:", snapshot.docs.length);
+
             const taxiData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
             setTaxis(taxiData);
             setLoading(false);
@@ -384,10 +382,71 @@ export default function App() {
         return () => unsubscribe();
     }, [user]);
 
-    const filteredTaxis = taxis.filter(taxi =>
-        taxi.plate.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        (taxi.model && taxi.model.toLowerCase().includes(searchTerm.toLowerCase()))
-    );
+    // Listener para el historial en tiempo real
+    useEffect(() => {
+        if (!isHistoryModalOpen || !selectedTaxi || !db || !user) return;
+
+
+        setHistoryLoading(true);
+
+        const historyRef = collection(db, 'users', user.uid, 'taxis', selectedTaxi.id, 'history');
+        const q = query(historyRef);
+
+        const unsubscribe = onSnapshot(q, (snapshot) => {
+
+            const logs = snapshot.docs.map(doc => {
+                const data = doc.data();
+                // IMPORTANTE: Usar doc.id (ID del documento) en lugar de data.id
+                // Eliminar el campo 'id' de los datos si existe (logs viejos)
+                const { id: _, ...cleanData } = data;
+
+                return {
+                    id: doc.id,  // ✅ Usar el ID real del documento de Firebase
+                    ...cleanData
+                };
+            });
+            logs.sort((a, b) => new Date(b.date) - new Date(a.date));
+            setHistoryLogs(logs);
+            setHistoryLoading(false);
+        }, (err) => {
+            console.error("Error loading history:", err);
+            setHistoryLoading(false);
+        });
+
+        return () => {
+
+            unsubscribe();
+        };
+    }, [isHistoryModalOpen, selectedTaxi, db, user]);
+
+    const filteredTaxis = taxis.filter(taxi => {
+        const matchesSearch = taxi.plate.toLowerCase().includes(searchTerm.toLowerCase()) ||
+            (taxi.model && taxi.model.toLowerCase().includes(searchTerm.toLowerCase()));
+
+        if (!matchesSearch) return false;
+
+        if (filterStatus === 'all') return true;
+
+        const status = calculateStatus(
+            taxi.currentKm,
+            taxi.lastServiceKm,
+            taxi.lastServiceDate,
+            taxi.afocatDate,
+            taxi.reviewDate
+        );
+
+        if (filterStatus === 'maintenance') {
+            return status.maintStatus === 'warning' || status.maintStatus === 'danger';
+        }
+        if (filterStatus === 'afocat') {
+            return status.afocat.status === 'warning' || status.afocat.status === 'danger';
+        }
+        if (filterStatus === 'review') {
+            return status.review.status === 'warning' || status.review.status === 'danger';
+        }
+
+        return true;
+    });
 
     const handleAddTaxi = async (e) => {
         e.preventDefault();
@@ -432,6 +491,7 @@ export default function App() {
     const openMaintenance = (taxi) => {
         setSelectedTaxi(taxi);
         setMaintKm(taxi.currentKm);
+        setMaintDate(new Date().toISOString().split('T')[0]); // Default to today
         setMaintOil('');
         setMaintFilters({ oilFilter: true, airFilter: false, fuelFilter: false });
         setMaintGrease(false);
@@ -449,25 +509,49 @@ export default function App() {
         if (maintFilters.fuelFilter) activeFilters.push('Filtro Combustible');
         if (maintGrease) activeFilters.push('Cambio de Grasa de Caja');
 
-        const maintenanceLog = {
-            date: new Date().toISOString(),
+        // Detectar cambios en documentos
+        let changedAfocat = null;
+        let changedReview = null;
+
+        if (newAfocat && newAfocat !== selectedTaxi.afocatDate) {
+            changedAfocat = newAfocat;
+        }
+        if (newReview && newReview !== selectedTaxi.reviewDate) {
+            changedReview = newReview;
+        }
+
+        const maintenanceLogData = {
+            date: maintDate ? new Date(maintDate).toISOString() : new Date().toISOString(),
             km: newCurrentKm,
             oilUsed: maintOil,
             filtersChanged: activeFilters,
             type: 'maintenance',
-            id: Date.now().toString() // ID para modo local
+            changedAfocat,
+            changedReview
         };
 
+        const updateData = {
+            currentKm: newCurrentKm,
+            lastServiceKm: newCurrentKm,
+            lastServiceDate: maintDate ? new Date(maintDate).toISOString() : new Date().toISOString(),
+            serviceCount: (selectedTaxi.serviceCount || 0) + 1,
+        };
+
+        if (changedAfocat) updateData.afocatDate = changedAfocat;
+        if (changedReview) updateData.reviewDate = changedReview;
+
         if (!db) {
-            // Modo LocalStorage
+            // Modo LocalStorage - aquí SÍ necesitamos un ID manual
+            const maintenanceLog = {
+                ...maintenanceLogData,
+                id: Date.now().toString()
+            };
+
             const updatedTaxis = taxis.map(t => {
                 if (t.id === selectedTaxi.id) {
                     return {
                         ...t,
-                        currentKm: newCurrentKm,
-                        lastServiceKm: newCurrentKm,
-                        lastServiceDate: new Date().toISOString(),
-                        serviceCount: (t.serviceCount || 0) + 1,
+                        ...updateData,
                         history: [maintenanceLog, ...(t.history || [])]
                     };
                 }
@@ -478,22 +562,74 @@ export default function App() {
             localStorage.setItem('taxis', JSON.stringify(updatedTaxis));
             setIsMaintModalOpen(false);
             setSelectedTaxi(null);
+            // Limpiar campos de documentos
+            setNewAfocat('');
+            setNewReview('');
             return;
         }
 
         try {
-            await addDoc(collection(db, 'users', user.uid, 'taxis', selectedTaxi.id, 'history'), maintenanceLog);
+            // Para Firebase, NO incluimos 'id' - Firebase lo genera automáticamente
+            await addDoc(collection(db, 'users', user.uid, 'taxis', selectedTaxi.id, 'history'), maintenanceLogData);
 
-            await updateDoc(doc(db, 'users', user.uid, 'taxis', selectedTaxi.id), {
-                currentKm: newCurrentKm,
-                lastServiceKm: newCurrentKm,
-                lastServiceDate: new Date().toISOString(),
-                serviceCount: (selectedTaxi.serviceCount || 0) + 1,
-            });
+            await updateDoc(doc(db, 'users', user.uid, 'taxis', selectedTaxi.id), updateData);
 
             setIsMaintModalOpen(false);
             setSelectedTaxi(null);
+            // Limpiar campos de documentos
+            setNewAfocat('');
+            setNewReview('');
         } catch (err) { console.error(err); }
+    };
+
+    const handleDeleteHistoryLog = async (logId) => {
+        if (!confirm('¿Eliminar este registro del historial?')) return;
+
+        if (!db) {
+            // Modo LocalStorage
+            const updatedTaxis = taxis.map(t => {
+                if (t.id === selectedTaxi.id) {
+                    const updatedHistory = (t.history || []).filter(h => String(h.id) !== String(logId));
+                    return { ...t, history: updatedHistory };
+                }
+                return t;
+            });
+            setTaxis(updatedTaxis);
+            localStorage.setItem('taxis', JSON.stringify(updatedTaxis));
+
+            // Actualizar vista actual
+            setHistoryLogs(prev => prev.filter(l => l.id !== logId));
+
+            // Actualizar selectedTaxi para que refleje los cambios si se vuelve a abrir
+            const updatedSelectedTaxi = updatedTaxis.find(t => t.id === selectedTaxi.id);
+            if (updatedSelectedTaxi) setSelectedTaxi(updatedSelectedTaxi);
+
+            return;
+        }
+
+        if (!user || !selectedTaxi) {
+
+            return;
+        }
+
+        try {
+            const docPath = `users/${user.uid}/taxis/${selectedTaxi.id}/history/${logId}`;
+            const docRef = doc(db, 'users', user.uid, 'taxis', selectedTaxi.id, 'history', logId);
+
+            await deleteDoc(docRef);
+            // No necesitamos actualizar manualmente porque onSnapshot lo hará
+            // setHistoryLogs(prev => prev.filter(l => l.id !== logId));
+        } catch (err) {
+            console.error("Error deleting log:", err);
+
+            if (err.code === 'permission-denied') {
+                alert("❌ ERROR DE PERMISOS: No tienes permiso para eliminar logs del historial.\n\n" +
+                    "Solución: Ve a Firebase Console → Firestore Database → Rules y actualiza las reglas de seguridad.\n\n" +
+                    "Revisa el documento 'firebase_rules_fix.md' para las reglas correctas.");
+            } else {
+                alert("Error al eliminar el registro: " + err.message);
+            }
+        }
     };
 
     const openHistory = async (taxi) => {
@@ -504,11 +640,6 @@ export default function App() {
 
         if (!db) {
             // Modo LocalStorage
-            // En modo local, el historial ya está en el objeto taxi (si se creó recientemente)
-            // O necesitamos asegurarnos de que lo leemos correctamente.
-            // Como actualizamos el estado 'taxis' globalmente, el objeto 'taxi' pasado aquí
-            // podría ser una referencia antigua si no tenemos cuidado, pero React suele manejarlo bien.
-            // Mejor buscamos el taxi actualizado en el estado 'taxis'.
             const currentTaxi = taxis.find(t => t.id === taxi.id) || taxi;
             setHistoryLogs(currentTaxi.history || []);
             setHistoryLoading(false);
@@ -519,12 +650,24 @@ export default function App() {
         try {
             const historyRef = collection(db, 'users', user.uid, 'taxis', taxi.id, 'history');
             const q = query(historyRef);
-            const snapshot = await getDocs(q);
-            const logs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-            logs.sort((a, b) => new Date(b.date) - new Date(a.date));
-            setHistoryLogs(logs);
-        } catch (err) { console.error(err); }
-        finally { setHistoryLoading(false); }
+
+            // Usar onSnapshot para actualizaciones en tiempo real
+            const unsubscribe = onSnapshot(q, (snapshot) => {
+                const logs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                logs.sort((a, b) => new Date(b.date) - new Date(a.date));
+                setHistoryLogs(logs);
+                setHistoryLoading(false);
+            }, (err) => {
+                console.error("Error loading history:", err);
+                setHistoryLoading(false);
+            });
+
+            // Guardar el unsubscribe para limpiarlo cuando se cierre el modal
+            // (esto se manejará cuando el usuario cierre el modal)
+        } catch (err) {
+            console.error(err);
+            setHistoryLoading(false);
+        }
     };
 
     const handleDeleteTaxi = async (id) => {
@@ -577,18 +720,46 @@ export default function App() {
             </header>
 
             <div className="max-w-5xl mx-auto px-4 py-6">
-                <div className="mb-6 bg-white p-2 rounded-xl shadow-sm border border-slate-200 flex items-center">
-                    <Search className="text-slate-400 ml-3" size={20} />
-                    <input
-                        type="text"
-                        placeholder="Buscar por placa o modelo..."
-                        className="w-full px-4 py-2 outline-none text-slate-700 font-medium"
-                        value={searchTerm}
-                        onChange={(e) => setSearchTerm(e.target.value)}
-                    />
-                    {searchTerm && (
-                        <button onClick={() => setSearchTerm('')} className="p-2 text-slate-400 hover:text-red-500"><X size={18} /></button>
-                    )}
+                <div className="mb-6 flex flex-col md:flex-row gap-4 justify-between items-center bg-white p-2 rounded-xl shadow-sm border border-slate-200">
+                    <div className="flex items-center w-full md:w-auto flex-1">
+                        <Search className="text-slate-400 ml-3" size={20} />
+                        <input
+                            type="text"
+                            placeholder="Buscar por placa o modelo..."
+                            className="w-full px-4 py-2 outline-none text-slate-700 font-medium"
+                            value={searchTerm}
+                            onChange={(e) => setSearchTerm(e.target.value)}
+                        />
+                        {searchTerm && (
+                            <button onClick={() => setSearchTerm('')} className="p-2 text-slate-400 hover:text-red-500"><X size={18} /></button>
+                        )}
+                    </div>
+                    <div className="flex gap-2 overflow-x-auto w-full md:w-auto pb-2 md:pb-0 px-2 md:px-0 no-scrollbar">
+                        <button
+                            onClick={() => setFilterStatus('all')}
+                            className={`px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap transition-colors ${filterStatus === 'all' ? 'bg-slate-800 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+                        >
+                            Todos
+                        </button>
+                        <button
+                            onClick={() => setFilterStatus('maintenance')}
+                            className={`px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap transition-colors flex items-center gap-1 ${filterStatus === 'maintenance' ? 'bg-red-600 text-white' : 'bg-red-50 text-red-700 hover:bg-red-100'}`}
+                        >
+                            <Settings size={14} /> Mantenimiento
+                        </button>
+                        <button
+                            onClick={() => setFilterStatus('afocat')}
+                            className={`px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap transition-colors flex items-center gap-1 ${filterStatus === 'afocat' ? 'bg-yellow-500 text-white' : 'bg-yellow-50 text-yellow-700 hover:bg-yellow-100'}`}
+                        >
+                            <AlertTriangle size={14} /> AFOCAT
+                        </button>
+                        <button
+                            onClick={() => setFilterStatus('review')}
+                            className={`px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap transition-colors flex items-center gap-1 ${filterStatus === 'review' ? 'bg-purple-600 text-white' : 'bg-purple-50 text-purple-700 hover:bg-purple-100'}`}
+                        >
+                            <CheckCircle size={14} /> Rev. Técnica
+                        </button>
+                    </div>
                 </div>
 
                 <div className="grid grid-cols-2 gap-4 mb-8">
@@ -663,6 +834,11 @@ export default function App() {
                         <p className="text-xs text-blue-700">{selectedTaxi?.model}</p>
                     </div>
                     <div>
+                        <label className="block text-sm font-medium text-slate-700 mb-1">Fecha de Mantenimiento</label>
+                        <input required type="date" className="w-full px-4 py-2 border border-slate-300 rounded-lg mb-4"
+                            value={maintDate} onChange={(e) => setMaintDate(e.target.value)} />
+                    </div>
+                    <div>
                         <label className="block text-sm font-medium text-slate-700 mb-1">1. Kilometraje Actual</label>
                         <div className="relative">
                             <Gauge className="absolute left-3 top-3 text-slate-400" size={18} />
@@ -731,15 +907,39 @@ export default function App() {
                     {historyLoading ? <div className="text-center text-slate-400">Cargando...</div> : historyLogs.length === 0 ? <div className="text-center text-slate-400 italic">Sin registros.</div> : (
                         <div className="space-y-4">
                             {historyLogs.map((log) => (
-                                <div key={log.id} className="bg-white border border-slate-200 rounded-lg p-4 shadow-sm relative overflow-hidden">
+                                <div key={log.id} className="bg-white border border-slate-200 rounded-lg p-4 shadow-sm relative overflow-hidden group">
                                     <div className="absolute top-0 left-0 w-1 h-full bg-blue-500"></div>
-                                    <div className="flex justify-between items-start mb-2">
+                                    <button
+                                        onClick={() => handleDeleteHistoryLog(log.id)}
+                                        className="absolute top-2 right-2 text-slate-300 hover:text-red-500 transition-colors opacity-0 group-hover:opacity-100"
+                                        title="Eliminar registro"
+                                    >
+                                        <Trash2 size={16} />
+                                    </button>
+                                    <div className="flex justify-between items-start mb-2 pr-6">
                                         <p className="font-bold text-slate-800 flex items-center gap-2"><Calendar size={14} className="text-slate-400" /> {new Date(log.date).toLocaleDateString()}</p>
                                         <span className="bg-slate-100 text-slate-600 px-2 py-1 rounded text-xs font-mono font-bold">{log.km?.toLocaleString()} km</span>
                                     </div>
                                     <div className="space-y-2 mt-3 pt-3 border-t border-slate-100">
                                         <div className="flex items-start gap-2 text-sm text-slate-700"><Droplet size={14} className="text-blue-500 mt-0.5 shrink-0" /> <span><span className="font-semibold">Aceite:</span> {log.oilUsed || 'No especificado'}</span></div>
                                         <div className="flex items-start gap-2 text-sm text-slate-700"><Filter size={14} className="text-orange-500 mt-0.5 shrink-0" /> <div className="flex flex-wrap gap-1"><span className="font-semibold mr-1">Filtros:</span> {log.filtersChanged && log.filtersChanged.length > 0 ? log.filtersChanged.map(f => (<span key={f} className="text-xs bg-orange-50 text-orange-700 px-1.5 py-0.5 rounded border border-orange-100">{f}</span>)) : <span className="text-slate-400 italic">Ninguno</span>}</div></div>
+
+                                        {(log.changedAfocat || log.changedReview) && (
+                                            <div className="mt-2 pt-2 border-t border-slate-100 flex flex-col gap-1">
+                                                {log.changedAfocat && (
+                                                    <div className="flex items-center gap-2 text-xs text-slate-600">
+                                                        <AlertTriangle size={12} className="text-yellow-600" />
+                                                        <span>AFOCAT renovado: <b>{new Date(log.changedAfocat + 'T12:00:00').toLocaleDateString()}</b></span>
+                                                    </div>
+                                                )}
+                                                {log.changedReview && (
+                                                    <div className="flex items-center gap-2 text-xs text-slate-600">
+                                                        <CheckCircle size={12} className="text-green-600" />
+                                                        <span>Rev. Técnica renovada: <b>{new Date(log.changedReview + 'T12:00:00').toLocaleDateString()}</b></span>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        )}
                                     </div>
                                 </div>
                             ))}
