@@ -6,6 +6,7 @@ export const GREASE_CHANGE_INTERVAL = 10;
 // Document warning days
 export const AFOCAT_WARNING_DAYS = 30;
 export const REVIEW_WARNING_DAYS = 15;
+export const EXTINGUISHER_WARNING_DAYS = 30;
 
 // Status types
 export const STATUS = {

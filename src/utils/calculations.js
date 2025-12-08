@@ -1,4 +1,4 @@
-import { KM_LIMIT, DAYS_LIMIT, AFOCAT_WARNING_DAYS, REVIEW_WARNING_DAYS, STATUS } from './constants';
+import { KM_LIMIT, DAYS_LIMIT, AFOCAT_WARNING_DAYS, REVIEW_WARNING_DAYS, EXTINGUISHER_WARNING_DAYS, STATUS } from './constants';
 
 /**
  * Calculate vehicle status based on maintenance and document dates
@@ -7,9 +7,10 @@ import { KM_LIMIT, DAYS_LIMIT, AFOCAT_WARNING_DAYS, REVIEW_WARNING_DAYS, STATUS 
  * @param {string} lastServiceDateStr - Last service date ISO string
  * @param {string} afocatDateStr - AFOCAT expiration date
  * @param {string} reviewDateStr - Technical review expiration date
+ * @param {string} extinguisherDateStr - Fire extinguisher expiration date
  * @returns {Object} Status object with all calculated values
  */
-export const calculateStatus = (currentKm, lastServiceKm, lastServiceDateStr, afocatDateStr, reviewDateStr) => {
+export const calculateStatus = (currentKm, lastServiceKm, lastServiceDateStr, afocatDateStr, reviewDateStr, extinguisherDateStr) => {
     // Maintenance (Oil/Filters)
     const kmDiff = currentKm - lastServiceKm;
     const kmProgress = Math.min((kmDiff / KM_LIMIT) * 100, 100);
@@ -43,14 +44,15 @@ export const calculateStatus = (currentKm, lastServiceKm, lastServiceDateStr, af
 
     const afocat = getDocStatus(afocatDateStr, AFOCAT_WARNING_DAYS);
     const review = getDocStatus(reviewDateStr, REVIEW_WARNING_DAYS);
+    const extinguisher = getDocStatus(extinguisherDateStr, EXTINGUISHER_WARNING_DAYS);
 
     // General status (worst of all)
     let generalStatus = STATUS.OK;
-    if (maintStatus === STATUS.DANGER || afocat.status === STATUS.DANGER || review.status === STATUS.DANGER) {
+    if (maintStatus === STATUS.DANGER || afocat.status === STATUS.DANGER || review.status === STATUS.DANGER || extinguisher.status === STATUS.DANGER) {
         generalStatus = STATUS.DANGER;
-    } else if (maintStatus === STATUS.WARNING || afocat.status === STATUS.WARNING || review.status === STATUS.WARNING) {
+    } else if (maintStatus === STATUS.WARNING || afocat.status === STATUS.WARNING || review.status === STATUS.WARNING || extinguisher.status === STATUS.WARNING) {
         generalStatus = STATUS.WARNING;
     }
 
-    return { kmDiff, kmProgress, daysDiff, timeProgress, maintStatus, afocat, review, generalStatus };
+    return { kmDiff, kmProgress, daysDiff, timeProgress, maintStatus, afocat, review, extinguisher, generalStatus };
 };

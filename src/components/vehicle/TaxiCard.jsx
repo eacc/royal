@@ -8,7 +8,8 @@ import {
     Trash2,
     History,
     CheckCircle,
-    AlertTriangle
+    AlertTriangle,
+    Flame
 } from 'lucide-react';
 import StatusBadge from '../common/StatusBadge';
 import { calculateStatus } from '../../utils/calculations';
@@ -23,18 +24,19 @@ import { KM_LIMIT, DAYS_LIMIT } from '../../utils/constants';
  * @param {function} onUpdateDocs - Update documents button handler
  */
 const TaxiCard = ({ taxi, onMaintenance, onDelete, onViewHistory, onUpdateDocs }) => {
-    const { kmDiff, kmProgress, daysDiff, timeProgress, maintStatus, afocat, review, generalStatus } = calculateStatus(
+    const { kmDiff, kmProgress, daysDiff, timeProgress, maintStatus, afocat, review, extinguisher, generalStatus } = calculateStatus(
         taxi.currentKm,
         taxi.lastServiceKm,
         taxi.lastServiceDate,
         taxi.afocatDate,
-        taxi.reviewDate
+        taxi.reviewDate,
+        taxi.extinguisherDate
     );
 
     return (
         <div className={`bg-white rounded-xl shadow-sm border-l-4 p-5 hover:shadow-md transition-shadow relative ${generalStatus === 'danger' ? 'border-red-500' :
-                generalStatus === 'warning' ? 'border-yellow-400' :
-                    'border-green-500'
+            generalStatus === 'warning' ? 'border-yellow-400' :
+                'border-green-500'
             }`}>
             <button
                 onClick={() => onViewHistory(taxi)}
@@ -58,6 +60,7 @@ const TaxiCard = ({ taxi, onMaintenance, onDelete, onViewHistory, onUpdateDocs }
                 <StatusBadge status={maintStatus} label="MANT." icon={Settings} />
                 <StatusBadge status={afocat.status} label="AFOCAT" icon={AlertTriangle} />
                 <StatusBadge status={review.status} label="REV." icon={CheckCircle} />
+                <StatusBadge status={extinguisher.status} label="EXTINTOR" icon={Flame} />
             </div>
 
             <div className="text-right mb-4">
@@ -84,8 +87,8 @@ const TaxiCard = ({ taxi, onMaintenance, onDelete, onViewHistory, onUpdateDocs }
                     <div className="w-full bg-slate-100 rounded-full h-2.5 overflow-hidden">
                         <div
                             className={`h-2.5 rounded-full ${timeProgress >= 100 ? 'bg-red-500' :
-                                    timeProgress > 80 ? 'bg-yellow-400' :
-                                        'bg-purple-500'
+                                timeProgress > 80 ? 'bg-yellow-400' :
+                                    'bg-purple-500'
                                 }`}
                             style={{ width: `${timeProgress}%` }}
                         ></div>
@@ -109,6 +112,14 @@ const TaxiCard = ({ taxi, onMaintenance, onDelete, onViewHistory, onUpdateDocs }
                             <span>Vence en {review.days} días</span>
                         )}
                     </div>
+                    <div>
+                        <span className="font-bold block">Extintor:</span>
+                        {extinguisher.days < 0 ? (
+                            <span className="text-red-600 font-bold">Vencido hace {Math.abs(extinguisher.days)} días</span>
+                        ) : (
+                            <span>Vence en {extinguisher.days} días</span>
+                        )}
+                    </div>
                 </div>
 
                 <div className="mt-2 bg-purple-50 p-2 rounded-lg border border-purple-100">
@@ -117,8 +128,8 @@ const TaxiCard = ({ taxi, onMaintenance, onDelete, onViewHistory, onUpdateDocs }
                             <Droplet size={12} /> Grasa de Caja:
                         </span>
                         <span className={`text-xs font-bold ${(taxi.changesSinceGrease || 0) >= 10 ? 'text-red-600 animate-pulse' :
-                                (taxi.changesSinceGrease || 0) >= 9 ? 'text-yellow-600' :
-                                    'text-purple-600'
+                            (taxi.changesSinceGrease || 0) >= 9 ? 'text-yellow-600' :
+                                'text-purple-600'
                             }`}>
                             {taxi.changesSinceGrease || 0} / 10 cambios
                         </span>

@@ -14,7 +14,8 @@ import {
     Wind,
     Filter,
     Edit,
-    Trash2
+    Trash2,
+    Flame
 } from 'lucide-react';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
 import { auth, db } from './utils/firebaseConfig';
@@ -52,6 +53,7 @@ export default function App() {
     const [newKm, setNewKm] = useState('');
     const [newAfocat, setNewAfocat] = useState('');
     const [newReview, setNewReview] = useState('');
+    const [newExtinguisher, setNewExtinguisher] = useState('');
     const [newGreaseDate, setNewGreaseDate] = useState('');
 
     // Form states - Maintenance
@@ -69,6 +71,7 @@ export default function App() {
     // Form states - Documents
     const [docAfocat, setDocAfocat] = useState('');
     const [docReview, setDocReview] = useState('');
+    const [docExtinguisher, setDocExtinguisher] = useState('');
 
     // Initialize storage service
     const storageService = new StorageService(db, user);
@@ -108,15 +111,23 @@ export default function App() {
 
     // History effect
     useEffect(() => {
-        if (!isHistoryModalOpen || !selectedTaxi) return;
-
-        setHistoryLoading(true);
-        const unsubscribe = storageService.getHistory(selectedTaxi.id, (logs) => {
-            setHistoryLogs(logs);
+        let unsubscribe = null;
+        if (isHistoryModalOpen && selectedTaxi && selectedTaxi.id) {
+            setHistoryLoading(true);
+            unsubscribe = storageService.getHistory(selectedTaxi.id, (logs) => {
+                setHistoryLogs(logs);
+                setHistoryLoading(false);
+            });
+        } else {
+            setHistoryLogs([]);
             setHistoryLoading(false);
-        });
+        }
 
-        return () => unsubscribe();
+        return () => {
+            if (unsubscribe && typeof unsubscribe === 'function') {
+                unsubscribe();
+            }
+        };
     }, [isHistoryModalOpen, selectedTaxi]);
 
     // Handlers
@@ -131,6 +142,7 @@ export default function App() {
             lastServiceDate: new Date().toISOString(),
             afocatDate: newAfocat,
             reviewDate: newReview,
+            extinguisherDate: newExtinguisher,
             serviceCount: 0,
             lastGreaseDate: newGreaseDate || new Date().toISOString(),
             lastGreaseKm: initialKm,
@@ -140,7 +152,7 @@ export default function App() {
         };
 
         await storageService.addTaxi(newTaxi);
-        setNewPlate(''); setNewModel(''); setNewKm(''); setNewAfocat(''); setNewReview(''); setNewGreaseDate('');
+        setNewPlate(''); setNewModel(''); setNewKm(''); setNewAfocat(''); setNewReview(''); setNewExtinguisher(''); setNewGreaseDate('');
         setIsAddModalOpen(false);
     };
 
@@ -202,6 +214,7 @@ export default function App() {
         setSelectedTaxiForDocs(taxi);
         setDocAfocat(taxi.afocatDate ? taxi.afocatDate.split('T')[0] : '');
         setDocReview(taxi.reviewDate ? taxi.reviewDate.split('T')[0] : '');
+        setDocExtinguisher(taxi.extinguisherDate ? taxi.extinguisherDate.split('T')[0] : '');
         setUpdateDocsModalOpen(true);
     };
 
@@ -215,6 +228,9 @@ export default function App() {
         }
         if (docReview && docReview !== (selectedTaxiForDocs.reviewDate || '').split('T')[0]) {
             updateData.reviewDate = docReview;
+        }
+        if (docExtinguisher && docExtinguisher !== (selectedTaxiForDocs.extinguisherDate || '').split('T')[0]) {
+            updateData.extinguisherDate = docExtinguisher;
         }
 
         if (Object.keys(updateData).length === 0) {
@@ -278,7 +294,8 @@ export default function App() {
             taxi.lastServiceKm,
             taxi.lastServiceDate,
             taxi.afocatDate,
-            taxi.reviewDate
+            taxi.reviewDate,
+            taxi.extinguisherDate
         );
 
         if (filterStatus === 'maintenance') {
@@ -289,6 +306,9 @@ export default function App() {
         }
         if (filterStatus === 'review') {
             return status.review.status === 'warning' || status.review.status === 'danger';
+        }
+        if (filterStatus === 'extinguisher') {
+            return status.extinguisher.status === 'warning' || status.extinguisher.status === 'danger';
         }
 
         return true;
@@ -374,6 +394,12 @@ export default function App() {
                         >
                             <CheckCircle size={14} /> Rev. Técnica
                         </button>
+                        <button
+                            onClick={() => setFilterStatus('extinguisher')}
+                            className={`px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap transition-colors flex items-center gap-1 ${filterStatus === 'extinguisher' ? 'bg-orange-600 text-white' : 'bg-orange-50 text-orange-700 hover:bg-orange-100'}`}
+                        >
+                            <Flame size={14} /> Extintor
+                        </button>
                     </div>
                 </div>
 
@@ -386,7 +412,7 @@ export default function App() {
                     <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200">
                         <p className="text-slate-500 text-xs font-bold uppercase">Mantenimiento Pendiente</p>
                         <p className="text-2xl font-bold text-red-600">
-                            {taxis.filter(t => calculateStatus(t.currentKm, t.lastServiceKm, t.lastServiceDate, t.afocatDate, t.reviewDate).generalStatus === 'danger').length}
+                            {taxis.filter(t => calculateStatus(t.currentKm, t.lastServiceKm, t.lastServiceDate, t.afocatDate, t.reviewDate, t.extinguisherDate).generalStatus === 'danger').length}
                         </p>
                     </div>
                 </div>
@@ -451,6 +477,11 @@ export default function App() {
                             <input type="date" className="w-full px-4 py-2 border rounded-lg"
                                 value={newReview} onChange={(e) => setNewReview(e.target.value)} />
                         </div>
+                    </div>
+                    <div>
+                        <label className="block text-sm font-medium text-slate-700 mb-1">Vencimiento Extintor</label>
+                        <input type="date" className="w-full px-4 py-2 border rounded-lg"
+                            value={newExtinguisher} onChange={(e) => setNewExtinguisher(e.target.value)} />
                     </div>
                     <div>
                         <label className="block text-sm font-medium text-slate-700 mb-1">Fecha Último Cambio de Grasa (Opcional)</label>
@@ -557,6 +588,11 @@ export default function App() {
                                 value={docReview} onChange={(e) => setDocReview(e.target.value)} />
                         </div>
                     </div>
+                    <div>
+                        <label className="block text-sm font-medium text-slate-700 mb-1">Vencimiento Extintor</label>
+                        <input type="date" className="w-full px-4 py-2 border rounded-lg"
+                            value={docExtinguisher} onChange={(e) => setDocExtinguisher(e.target.value)} />
+                    </div>
                     <button type="submit" className="w-full bg-blue-600 text-white font-bold py-3 rounded-lg hover:bg-blue-700">
                         Actualizar Documentos
                     </button>
@@ -564,7 +600,7 @@ export default function App() {
             </Modal>
 
             {/* MODAL HISTORIAL */}
-            <Modal isOpen={isHistoryModalOpen} onClose={() => setIsHistoryModalOpen(false)} title="Historial">
+            <Modal isOpen={isHistoryModalOpen} onClose={() => { setSelectedTaxi(null); setIsHistoryModalOpen(false); setHistoryLogs([]); }} title="Historial">
                 <div className="space-y-4">
                     <div className="bg-slate-50 p-3 rounded-lg border border-slate-100">
                         <h4 className="font-bold text-slate-900">{selectedTaxi?.plate}</h4>
