@@ -632,7 +632,7 @@ export default function App() {
                                         </button>
                                     </div>
                                     <div className="flex justify-between items-start mb-2 pr-6">
-                                        <p className="font-bold text-slate-800 flex items-center gap-2"><Calendar size={14} className="text-slate-400" /> {new Date(log.date).toLocaleDateString()}</p>
+                                        <p className="font-bold text-slate-800 flex items-center gap-2"><Calendar size={14} className="text-slate-400" /> {new Date(log.date).toLocaleDateString(undefined, { timeZone: 'UTC' })}</p>
                                         <span className="bg-slate-100 text-slate-600 px-2 py-1 rounded text-xs font-mono font-bold">{log.km?.toLocaleString()} km</span>
                                     </div>
                                     <div className="space-y-2 mt-3 pt-3 border-t border-slate-100">
